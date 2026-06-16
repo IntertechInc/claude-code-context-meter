@@ -1,0 +1,3 @@
+# Keep shell scripts as LF so the shebang and bash logic work on Linux/WSL/macOS
+# even when committed from Windows.
+*.sh text eol=lf

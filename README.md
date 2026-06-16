@@ -33,13 +33,23 @@ The fill segment changes color by percentage used:
 
 ### Compaction and clear
 
-When you run `/compact` or `/clear`, the window shrinks. Because the delta is just `current minus previous`, a compaction produces a large negative number. Rather than showing an alarming `▼-372k`, a drop of at least `CTX_COMPACT_MIN` tokens is labeled as a compaction:
+When you run `/compact` or `/clear`, the window shrinks. Because the delta is just `current minus previous`, a compaction produces a large negative number. Rather than showing an alarming `▼-830k`, that drop is labeled as a compaction with a `⟲`:
 
 ```
-Opus (38k/1M, 4%) ⟲ -372k ▁▃█▁ | 5h 22% | 7d 41%
+Opus (38k/1M, 4%) ⟲A -830k ▁▃█▁ | 5h 22% | 7d 41%
 ```
 
-That reads as "compaction reclaimed about 372k, and you are now sitting at 38k." Smaller negative wobbles (a rare cache rewrite) still show as a minor `▼` so they are not mislabeled.
+That reads as "compaction reclaimed about 830k, and you are now sitting at 38k." Smaller negative wobbles (a rare cache rewrite) still show as a minor `▼` so they are not mislabeled.
+
+The letter after the `⟲` tells you what triggered it:
+
+| Marker | Meaning |
+|--------|---------|
+| `⟲M` | Manual compaction (you ran `/compact`) |
+| `⟲A` | Automatic compaction (the window filled up) |
+| `⟲` (no letter) | Compaction inferred from the size of the drop, trigger unknown |
+
+The `M` and `A` markers require the optional PreCompact hook (see below). Without it, the status line still flags compactions, just without knowing which kind, by treating any drop of at least `CTX_COMPACT_MIN` tokens as a compaction.
 
 ## Requirements
 
@@ -83,6 +93,41 @@ The script itself is one `jq` call plus pure bash arithmetic. No `git`, `date`, 
 
 On Windows, Claude Code runs the status line through Git Bash when it is installed. Use forward slashes in the path inside `settings.json`, for example `"~/.claude/statusline-ctx.sh"`, since Git Bash treats backslashes as escape characters. The `~` shorthand expands to your Windows home directory. WSL works exactly like Linux.
 
+## Deterministic compaction detection (optional)
+
+By default the status line infers a compaction from the size of the token drop. If you want it to know for certain, and to distinguish a manual `/compact` from an automatic one, install the included PreCompact hook.
+
+Claude Code fires a `PreCompact` event just before it compacts, and hands the hook a `trigger` field set to `manual` or `auto`. The hook records that to a per-session flag file, and the status line reads it on the next tick to show `⟲M` or `⟲A`, then clears it.
+
+1. Copy the hook alongside the status line and make it executable:
+
+   ```bash
+   cp precompact-hook.sh ~/.claude/precompact-hook.sh
+   chmod +x ~/.claude/precompact-hook.sh
+   ```
+
+2. Add a `PreCompact` hook to `~/.claude/settings.json`. No matcher is needed, since the hook reads the trigger itself and handles both cases:
+
+   ```json
+   {
+     "statusLine": {
+       "type": "command",
+       "command": "~/.claude/statusline-ctx.sh"
+     },
+     "hooks": {
+       "PreCompact": [
+         {
+           "hooks": [
+             { "type": "command", "command": "~/.claude/precompact-hook.sh" }
+           ]
+         }
+       ]
+     }
+   }
+   ```
+
+The hook also requires `jq`. It writes nothing to standard output, so it never injects text into the compacted conversation, and it runs only when a compaction happens rather than on every turn, so it has no effect on status line performance.
+
 ## Configuration
 
 All optional, set as environment variables before launching Claude Code:
@@ -90,7 +135,7 @@ All optional, set as environment variables before launching Claude Code:
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `CTX_SPARK_WIDTH` | `8` | Number of points in the sparkline window |
-| `CTX_COMPACT_MIN` | `5000` | Minimum token drop counted as a compaction (labeled `⟲`) |
+| `CTX_COMPACT_MIN` | `5000` | Minimum token drop inferred as a compaction when the hook is not installed (labeled bare `⟲`) |
 | `CTX_NO_COLOR` | unset | Set to `1` to disable ANSI color |
 
 ## How it works
@@ -101,7 +146,9 @@ The fill number is `context_window.total_input_tokens` (input plus cache creatio
 
 ### A note on compaction detection
 
-There is no field in the JSON that flags "this update came from a compact," so the `⟲` label is inferred purely from the size of the drop. In practice this is reliable, since the only things that shrink the window meaningfully are `/compact` and `/clear`. If you ever see a `⟲` you did not expect, it means the window dropped by `CTX_COMPACT_MIN` or more for some other reason, which is itself worth noticing.
+The status line's own JSON payload has no field that flags "this update came from a compact," which is why the default detection infers it from the size of the drop. That inference is reliable in practice, since the only things that shrink the window meaningfully are `/compact` and `/clear`. If you ever see a bare `⟲` you did not expect, it means the window dropped by `CTX_COMPACT_MIN` or more for some other reason, which is itself worth noticing.
+
+The compaction event itself does exist, just on a different channel: the `PreCompact` hook described above. Installing that hook upgrades detection from "inferred from the drop" to "known from the event," which is also what lets the line tell a manual `/compact` (`⟲M`) apart from an automatic one (`⟲A`).
 
 ## Testing
 

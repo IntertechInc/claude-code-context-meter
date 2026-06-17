@@ -32,6 +32,12 @@
 
 set -u
 
+# jq is required. Without it, show a visible hint instead of a cryptic blank line.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "[statusline-ctx: jq not installed (see README)]"
+  exit 0
+fi
+
 SPARK_WIDTH="${CTX_SPARK_WIDTH:-8}"
 # A negative delta at least this large is treated as a compaction (or /clear)
 # rather than a minor cache wobble, and is labeled with ⟲ instead of ▼.

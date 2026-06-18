@@ -57,6 +57,36 @@ The script itself is one `jq` call plus pure bash arithmetic. No `git`, `date`, 
 | Windows (winget) | `winget install jqlang.jq` |
 | Windows (Scoop) | `scoop install jq` |
 
+### Installing jq on Windows
+
+Claude Code runs the status line through Git Bash, so jq has to be visible from inside Git Bash, not just installed somewhere on Windows. That distinction is what trips most people up.
+
+1. Install jq with whichever package manager you have:
+
+   ```powershell
+   winget install jqlang.jq
+   # or
+   scoop install jq
+   # or
+   choco install jq
+   ```
+
+2. Fully restart your terminal and Claude Code afterward. Git Bash reads the Windows PATH when it launches, so it will not see a freshly installed jq until it is relaunched.
+
+3. Verify jq is on Git Bash's PATH specifically. Open Git Bash (not PowerShell or cmd) and run:
+
+   ```bash
+   jq --version
+   ```
+
+   If that prints a version, you are done. If it prints "command not found" here even though jq works in PowerShell, the install landed somewhere Git Bash's PATH does not include. winget and choco install to a system PATH location that Git Bash inherits, so a restart usually resolves it. scoop installs to `~/scoop/shims`, which is on your user PATH; if Git Bash still cannot find it, add this to your `~/.bashrc`:
+
+   ```bash
+   export PATH="$HOME/scoop/shims:$PATH"
+   ```
+
+If jq is missing, the status line does not crash. It renders `[statusline-ctx: jq not installed (see README)]` so the problem is obvious instead of showing a blank or broken line.
+
 ## Install
 
 1. Copy the script into your Claude config directory and make it executable:

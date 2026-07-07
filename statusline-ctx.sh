@@ -20,8 +20,14 @@
 #
 # Optional env toggles:
 #   CTX_SPARK_WIDTH   number of points in the sparkline window (default 8)
-#   CTX_COMPACT_MIN   min token drop counted as a compaction, labeled ⟲ (default 5000)
+#   CTX_COMPACT_MIN   min token drop inferred as a compaction, labeled ⟲ (default 5000)
 #   CTX_NO_COLOR=1    disable ANSI color
+#
+# Compaction detection:
+#   Without the hook, a drop of CTX_COMPACT_MIN+ tokens is inferred as a compaction
+#   and shown as a bare ⟲. With the optional PreCompact hook (see README) installed,
+#   detection is exact: the hook writes the trigger to /tmp/ccstatus-compact-<id> and
+#   this script shows ⟲M (manual /compact) or ⟲A (auto, full window), then clears it.
 #
 # Color thresholds and the idea of surfacing context fill alongside the 5h/7d
 # rate limits were inspired by daniel3303/ClaudeCodeStatusLine. No code reused.
@@ -85,6 +91,14 @@ STATE="/tmp/ccstatus-ctx-${SESSION_ID}"
 HIST=""
 [ -r "$STATE" ] && read -r HIST < "$STATE"
 
+# Deterministic compaction signal written by the optional PreCompact hook:
+# "M" for a manual /compact, "A" for an auto compaction. Absent if the hook
+# is not installed, in which case we fall back to the CTX_COMPACT_MIN heuristic.
+FLAG_FILE="/tmp/ccstatus-compact-${SESSION_ID}"
+COMPACT_FLAG=""
+[ -r "$FLAG_FILE" ] && IFS= read -r COMPACT_FLAG < "$FLAG_FILE"
+case "$COMPACT_FLAG" in M|A) ;; *) COMPACT_FLAG="" ;; esac
+
 # Before the first API response total is 0. Don't record it or it inflates the
 # first real delta. Show a placeholder delta until real data arrives.
 DELTA_STR="—"
@@ -97,8 +111,9 @@ if [ "$TOK" -gt 0 ]; then
     if   [ "$d" -gt 0 ]; then DELTA_STR="▲+$(fmt "$d")"
     elif [ "$d" -lt 0 ]; then
       ad=$((-d))
-      if [ "$ad" -ge "$COMPACT_MIN" ]; then DELTA_STR="⟲ -$(fmt "$ad")"
-      else                                  DELTA_STR="▼-$(fmt "$ad")"
+      if   [ -n "$COMPACT_FLAG" ];        then DELTA_STR="⟲${COMPACT_FLAG} -$(fmt "$ad")"; rm -f "$FLAG_FILE"
+      elif [ "$ad" -ge "$COMPACT_MIN" ]; then DELTA_STR="⟲ -$(fmt "$ad")"
+      else                                    DELTA_STR="▼-$(fmt "$ad")"
       fi
     else                      DELTA_STR="●0"
     fi

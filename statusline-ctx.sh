@@ -87,9 +87,16 @@ fmt() {
 }
 
 # --- state: per-session token history, newest last ---------------------------
+# Line 1: space-separated token history (newest last).
+# Line 2: last good "MAX PCT", used to redraw a real line on empty idle ticks.
 STATE="/tmp/ccstatus-ctx-${SESSION_ID}"
-HIST=""
-[ -r "$STATE" ] && read -r HIST < "$STATE"
+HIST=""; LAST_META=""
+[ -r "$STATE" ] && { read -r HIST; read -r LAST_META; } < "$STATE"
+LAST_MAX=0; LAST_PCT=0
+if [ -n "$LAST_META" ]; then
+  # shellcheck disable=SC2206
+  meta=($LAST_META); LAST_MAX=${meta[0]:-0}; LAST_PCT=${meta[1]:-0}
+fi
 
 # Deterministic compaction signal written by the optional PreCompact hook:
 # "M" for a manual /compact, "A" for an auto compaction. Absent if the hook
@@ -122,7 +129,18 @@ if [ "$TOK" -gt 0 ]; then
   arr+=("$TOK")
   while [ "${#arr[@]}" -gt "$SPARK_WIDTH" ]; do arr=("${arr[@]:1}"); done
   HIST="${arr[*]}"
-  printf '%s\n' "$HIST" > "$STATE"
+  printf '%s\n%s %s\n' "$HIST" "$MAX" "$PCT" > "$STATE"
+elif [ -n "$HIST" ]; then
+  # Idle tick: when no turn is in flight, the payload carries no context_window,
+  # so TOK/MAX/PCT all parse as 0. That made the resting statusline collapse to
+  # "0/0, 0%" right after a turn — even though the work that just ran is still in
+  # context. Redraw the last known values instead; this is the line the user
+  # actually reads between turns. No new data, so no delta and no history append.
+  # shellcheck disable=SC2206
+  arr=($HIST)
+  TOK=${arr[${#arr[@]}-1]}
+  [ "$MAX" -le 0 ] && MAX=$LAST_MAX
+  [ "$PCT" -le 0 ] && PCT=$LAST_PCT
 fi
 
 # --- sparkline over the recorded history (pure bash) -------------------------
